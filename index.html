@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Call My Daughter</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, sans-serif; max-width: 960px; margin: 20px auto; padding: 0 16px; background: #f5f6fa; color: #222; -webkit-text-size-adjust: 100%; }
+  h1 { font-size: 1.5rem; }
+  h2 { font-size: 1.15rem; margin-top: 0; }
+  section { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 18px; margin-bottom: 20px; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+  label { font-weight: 600; font-size: .9rem; display: block; margin: 8px 0 4px; }
+  input, select, button { font-size: 1rem; padding: 8px; border: 1px solid #bbb; border-radius: 6px; }
+  button { cursor: pointer; background: #3b7dd8; color: #fff; border: none; }
+  button:hover { background: #2a5fae; }
+  button.secondary { background: #888; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .row > div { flex: 1; min-width: 150px; }
+  .result { margin-top: 12px; padding: 12px; background: #eef4fd; border-radius: 8px; font-size: 1.05rem; min-height: 24px; }
+  .verdict { margin-top: 12px; padding: 14px; border-radius: 8px; font-size: 1.1rem; font-weight: bold; }
+  .yes { background: #e6f7e6; color: #1a7a1a; }
+  .no { background: #fdeaea; color: #a11; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: .92rem; }
+  th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+  th { background: #f0f0f0; }
+  .small { font-size: .8rem; color: #666; }
+  .note { margin-top: 8px; font-size: .85rem; color: #555; }
+  .reason { margin-top: 12px; color: #cc0000; font-weight: bold; font-size: 1.35rem; }
+  #qNote { font-size: .9rem; }
+  @media (max-width: 640px) {
+    body { margin: 10px auto; padding: 0 8px; }
+    h1 { font-size: 1.2rem; }
+    section { padding: 12px; }
+    .row > div, .row > button { flex: 1 1 100%; min-width: 0; }
+    .row button { width: 100%; padding: 12px; font-size: 1.05rem; }
+    input, select { width: 100%; box-sizing: border-box; padding: 12px; font-size: 16px; }
+    .verdict { font-size: 1rem; }
+    .reason { font-size: 1.15rem; }
+    table { font-size: .82rem; }
+    th, td { padding: 4px 5px; }
+  }
+</style>
+</head>
+<body>
+<h1>Germany ⇄ China Time Converter &amp; Daughter's Schedule Checker</h1>
+
+<section style="background:#eaf2fb">
+  <h2>Feature 1 — Time Zone Converter <span class="small">(DST-aware: Germany CET/CEST, China UTC+8 all year)</span></h2>
+  <div class="row">
+    <div>
+      <label>Date</label><input type="date" id="cDate">
+    </div>
+    <div>
+      <label>Time</label><input type="time" id="cTime">
+    </div>
+    <div>
+      <label>Time is in</label>
+      <select id="cZone">
+        <option value="DE">Germany</option>
+        <option value="CN" selected>China</option>
+      </select>
+    </div>
+    <div>
+      <button id="btnConvert" type="button">Convert</button>
+      <button id="btnNow" class="secondary" type="button">Now</button>
+    </div>
+  </div>
+  <div class="result" id="cOut">Enter a date &amp; time and press Convert.</div>
+  <div class="note" id="cNote"></div>
+</section>
+
+<section style="background:#eafbef">
+  <h2>Feature 2 — Can I call my daughter?</h2>
+  <div class="row">
+    <div>
+      <label>Date &amp; time (China time)</label><input type="datetime-local" id="qDT">
+    </div>
+    <div>
+      <button id="btnCheck" type="button">Check</button>
+      <button id="btnCheckNow" class="secondary" type="button">Check now</button>
+    </div>
+  </div>
+  <div class="verdict" id="qOut" style="display:none"></div>
+  <div class="reason" id="qDetail"></div>
+  <div class="note" id="qNote"></div>
+  <div class="note">All times are Beijing time (China, UTC+8). Germany time shown for convenience.</div>
+</section>
+
+<section style="background:#fdf6e7">
+  <h2>Built-in Schedule Rules <span class="small">(China time)</span></h2>
+  <table id="rulesTable">
+    <thead><tr><th>Event</th><th>Start</th><th>End</th><th>When</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="note">These rules are built into the app and need no setup. China public holidays and makeup workdays are handled automatically.</div>
+</section>
+
+<script>
+// ---------- Built-in rules (China / Beijing time) ----------
+var BUILTIN_RULES = [
+  {name:"Kindergarten",                 start:"08:00", end:"18:00", freq:"weekdays", skipHolidays:true},
+  {name:"English course",               start:"18:00", end:"19:30", freq:"weekly", dow:3},
+  {name:"English course",               start:"17:00", end:"18:30", freq:"weekly", dow:6},
+  {name:"Lunch",                        start:"11:00", end:"13:00", freq:"weekendOrHoliday"},
+  {name:"Dinner",                       start:"18:00", end:"19:00", freq:"weekendOrHoliday"},
+  {name:"Bedtime (night sleep)",        start:"21:30", end:"07:00", freq:"daily"}
+];
+
+// China public holidays. Makeup weekend workdays (调休) go in WORKDAYS.
+// 2026 per State Council notice; 2027 approximate until the official notice is out.
+var HOLIDAYS = [];
+var WORKDAYS = ["2026-01-04","2026-02-14","2026-02-28","2026-05-09","2026-09-20","2026-10-10"];
+(function(){
+  var spans = [
+    ["2025-01-01","2025-01-01"],
+    ["2026-01-01","2026-01-03"],
+    ["2026-02-15","2026-02-23"],
+    ["2026-04-04","2026-04-06"],
+    ["2026-05-01","2026-05-05"],
+    ["2026-06-19","2026-06-21"],
+    ["2026-09-25","2026-09-27"],
+    ["2026-10-01","2026-10-07"],
+    ["2027-01-01","2027-01-01"],
+    ["2027-02-06","2027-02-12"],
+    ["2027-04-04","2027-04-06"],
+    ["2027-05-01","2027-05-04"],
+    ["2027-06-09","2027-06-11"],
+    ["2027-09-15","2027-09-15"],
+    ["2027-10-01","2027-10-07"]
+  ];
+  spans.forEach(function(sp){
+    var a = Date.parse(sp[0]+"T00:00:00Z"), b = Date.parse(sp[1]+"T00:00:00Z");
+    for (var t = a; t <= b; t += 86400e3){
+      HOLIDAYS.push(new Date(t).toISOString().slice(0,10));
+    }
+  });
+})();
+
+// ---------- Helpers ----------
+function pad(n){ return (n < 10 ? "0" : "") + n; }
+function toMin(hm){ return +hm.slice(0,2) * 60 + +hm.slice(3,5); }
+var dowNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+// ---------- Time zone conversion ----------
+// Germany: CET (UTC+1) / CEST (UTC+2). DST from last Sunday of March 01:00 UTC
+// to last Sunday of October 01:00 UTC.
+function lastSunday(year, month){ // month 0-based
+  var d = new Date(Date.UTC(year, month + 1, 0));
+  return d.getUTCDate() - d.getUTCDay();
+}
+function isDST(date){
+  var y = date.getUTCFullYear();
+  var startUTC = Date.UTC(y, 2, lastSunday(y, 2), 1, 0);
+  var endUTC   = Date.UTC(y, 9, lastSunday(y, 9), 1, 0);
+  var t = date.getTime();
+  return t >= startUTC && t < endUTC;
+}
+// Wall-clock (Y,M,D,h,mi) in 'DE' or 'CN' -> UTC ms.
+function wallToUTC(y, mo, d, h, mi, zone){
+  if (zone === "CN") return Date.UTC(y, mo, d, h, mi) - 8 * 3600e3;
+  for (var off = 1; off <= 2; off++){
+    var utc = Date.UTC(y, mo, d, h, mi) - off * 3600e3;
+    if ((isDST(new Date(utc)) ? 2 : 1) === off) return utc;
+  }
+  return Date.UTC(y, mo, d, h, mi) - 3600e3;
+}
+function utcToWall(utc, zone){
+  var off = zone === "CN" ? 8 : (isDST(new Date(utc)) ? 2 : 1);
+  var d = new Date(utc + off * 3600e3);
+  return {y: d.getUTCFullYear(), mo: d.getUTCMonth(), d: d.getUTCDate(),
+          h: d.getUTCHours(), mi: d.getUTCMinutes(), dow: d.getUTCDay(),
+          gz: off === 2 ? "CEST (UTC+2, summer time)" : "CET (UTC+1, winter time)",
+          off: off};
+}
+function ymd(w){ return w.y + "-" + pad(w.mo + 1) + "-" + pad(w.d); }
+function hm(w){ return pad(w.h) + ":" + pad(w.mi); }
+
+// ---------- Feature 1 ----------
+function convert(){
+  var dateStr = document.getElementById("cDate").value;
+  var timeStr = document.getElementById("cTime").value;
+  var zone = document.getElementById("cZone").value;
+  if (!dateStr || !timeStr) { alert("Please enter date and time."); return; }
+
+  var y = +dateStr.slice(0,4), mo = +dateStr.slice(5,7) - 1, d = +dateStr.slice(8,10);
+  var h = +timeStr.slice(0,2), mi = +timeStr.slice(3,5);
+  var utc = wallToUTC(y, mo, d, h, mi, zone);
+  var other = zone === "DE" ? "CN" : "DE";
+  var fromW = utcToWall(utc, zone), toW = utcToWall(utc, other);
+
+  var out, note;
+  if (zone === "DE"){
+    out = hm(fromW) + " " + dowNames[fromW.dow] + " in Germany = " +
+          hm(toW) + " " + dowNames[toW.dow] + " in China.";
+    note = "Germany is on " + fromW.gz + " on that date. China is " +
+           (fromW.off === 2 ? "6" : "7") + " hours ahead.";
+  } else {
+    out = hm(fromW) + " " + dowNames[fromW.dow] + " in China = " +
+          hm(toW) + " " + dowNames[toW.dow] + " in Germany.";
+    note = "Germany is on " + toW.gz + " on that date. Germany is " +
+           (toW.off === 2 ? "6" : "7") + " hours behind China.";
+  }
+  document.getElementById("cOut").textContent = out;
+  document.getElementById("cNote").textContent = note;
+}
+function nowInGermany(){
+  var w = utcToWall(Date.now(), "DE");
+  document.getElementById("cDate").value = ymd(w);
+  document.getElementById("cTime").value = hm(w);
+  document.getElementById("cZone").value = "DE";
+  convert();
+}
+
+// ---------- Schedule checking ----------
+function dateStr(y, mo, d){ return y + "-" + pad(mo + 1) + "-" + pad(d); }
+function isHoliday(y, mo, d){ return HOLIDAYS.indexOf(dateStr(y, mo, d)) >= 0; }
+function isWorkday(y, mo, d, dow){
+  if (dow >= 1 && dow <= 5) return true;
+  return WORKDAYS.indexOf(dateStr(y, mo, d)) >= 0;
+}
+function ruleMatches(rule, y, mo, d, dow){
+  if (rule.freq === "daily") return true;
+  if (rule.freq === "weekendOrHoliday") return dow === 0 || dow === 6 || isHoliday(y, mo, d);
+  if (rule.freq === "weekdays") {
+    if (rule.skipHolidays && isHoliday(y, mo, d)) return false;
+    return isWorkday(y, mo, d, dow);
+  }
+  if (rule.freq === "weekend") return dow === 0 || dow === 6;
+  if (rule.freq === "weekly") return dow === +rule.dow;
+  if (rule.freq === "oneoff") return rule.date === dateStr(y, mo, d);
+  return false;
+}
+function conflictsFor(y, mo, d, h, mi){
+  var t = h * 60 + mi;
+  var dow = new Date(Date.UTC(y, mo, d)).getUTCDay();
+  var found = [];
+  for (var i = 0; i < BUILTIN_RULES.length; i++){
+    var r = BUILTIN_RULES[i];
+    if (!ruleMatches(r, y, mo, d, dow)) continue;
+    var s = toMin(r.start), e = toMin(r.end);
+    var hit = s <= e ? (t >= s && t < e) : (t >= s || t < e); // overnight wrap
+    if (hit) found.push({name: r.name, s: r.start, e: r.end, overnight: s > e});
+  }
+  return found;
+}
+function checkNow(){
+  var w = utcToWall(Date.now(), "CN");
+  document.getElementById("qDT").value = ymd(w) + "T" + hm(w);
+  check();
+}
+function check(){
+  var dt = document.getElementById("qDT").value;
+  if (!dt) { alert("Please enter date & time."); return; }
+
+  var y = +dt.slice(0,4), mo = +dt.slice(5,7) - 1, d = +dt.slice(8,10);
+  var h = +dt.slice(11,13), mi = +dt.slice(14,16);
+  var dow = new Date(Date.UTC(y, mo, d)).getUTCDay();
+  var hits = conflictsFor(y, mo, d, h, mi);
+  var out = document.getElementById("qOut");
+  var detail = document.getElementById("qDetail");
+  var qnote = document.getElementById("qNote");
+  out.style.display = "block";
+
+  // Germany equivalent of the queried China time
+  var utc = wallToUTC(y, mo, d, h, mi, "CN");
+  var de = utcToWall(utc, "DE");
+  var when = hm({h:h, mi:mi}) + " " + dowNames[dow] + ", " + dateStr(y, mo, d);
+  var deWhen = hm(de) + " " + dowNames[de.dow];
+  qnote.textContent = "In Germany that is " + deWhen + " (" + de.gz + ").";
+
+  if (hits.length === 0){
+    out.className = "verdict yes";
+    out.textContent = "YES — you can call her at " + when + " (China time).";
+    detail.textContent = "";
+  } else {
+    out.className = "verdict no";
+    out.textContent = "NO — don't call at " + when + " (China time).";
+    var reasons = hits.map(function(x){
+      return x.name + " (" + x.s + "–" + x.e + (x.overnight ? " +1 day" : "") + ")";
+    });
+    detail.textContent = "Reason: she is occupied — " + reasons.join("; ") + ".";
+  }
+}
+
+// ---------- Built-in rules table ----------
+function ruleWhen(r){
+  if (r.freq === "daily") return "Every day" + (toMin(r.end) < toMin(r.start) ? ", overnight" : "");
+  if (r.freq === "weekdays") return "Mon–Fri, except China public holidays";
+  if (r.freq === "weekend") return "Sat & Sun";
+  if (r.freq === "weekendOrHoliday") return "Sat, Sun & China public holidays";
+  if (r.freq === "weekly") return "Every " + dowNames[+r.dow || 1];
+  if (r.freq === "oneoff") return "On " + r.date;
+  return "";
+}
+function renderRules(){
+  var tb = document.querySelector("#rulesTable tbody");
+  tb.innerHTML = "";
+  BUILTIN_RULES.forEach(function(r){
+    var tr = document.createElement("tr");
+    var cells = [r.name, r.start, r.end, ruleWhen(r)];
+    for (var i = 0; i < cells.length; i++){
+      var td = document.createElement("td");
+      td.textContent = cells[i];
+      tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  });
+}
+
+// ---------- Wire up ----------
+document.getElementById("btnConvert").addEventListener("click", convert);
+document.getElementById("btnNow").addEventListener("click", nowInGermany);
+document.getElementById("btnCheck").addEventListener("click", check);
+document.getElementById("btnCheckNow").addEventListener("click", checkNow);
+
+(function init(){
+  var cn = utcToWall(Date.now(), "CN");
+  document.getElementById("cDate").value = ymd(cn);
+  document.getElementById("cTime").value = hm(cn);
+  document.getElementById("cZone").value = "CN";
+  document.getElementById("qDT").value = ymd(cn) + "T" + hm(cn);
+  renderRules();
+})();
+</script>
+</body>
+</html>
